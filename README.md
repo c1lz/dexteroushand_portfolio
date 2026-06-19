@@ -1,213 +1,221 @@
-# AHand-Grasp：基于示范预热 PPO 的五指灵巧手稳定抓取
+# AHand-Grasp: Stable Grasping with a Five-Finger Dexterous Hand using Demonstration-Warm-Started PPO
 
-> 面向灵巧操作的 MuJoCo 强化学习项目：使自定义五指机械手完成圆柱物体的包络抓取、抬升与稳定保持。
+> A MuJoCo reinforcement learning project for dexterous manipulation: enabling a custom five-finger robotic hand to perform enveloping grasping, lifting, and stable holding of a cylindrical object.
 
+> This portfolio was prepared within a limited timeframe and is based on a project completed some time ago. As a result, certain aspects may remain incomplete or subject to further refinement.
 
-- 作者：`[程于成]`
-- 申请方向：机器人学习 / 灵巧操作 / 强化学习
-- 项目周期：`[2026.1-2026.2]`
-- 联系方式：`[23222004@bjtu.edu.cn]`
-- 演示视频：`[视频链接]`
+* Author: `[Yucheng Cheng]`
+* Application Area: Robotic Learning / Dexterous Manipulation / Reinforcement Learning
+* Project Period: `[Jan. 2026 – Feb. 2026]`
+* Contact: `[23222004@bjtu.edu.cn]`
 
+## Project Summary
 
+This project investigates the problem of stable grasping with a five-finger robotic hand in physics simulation. The task requires the hand to establish effective multi-finger contact with a cylinder, form a sufficiently stable grasp without excessive slipping, lift the object, and keep it from falling or drifting significantly for a period of time.
 
-## 项目摘要
-本项目研究五指机械手在物理仿真中的稳定抓取问题。任务要求机械手以五根手指共同接触圆柱，形成足够且不过度滑移的抓持后抬升物体，并在一段时间内保持物体不掉落、不过度漂移。
+To address common local optima in direct PPO training, such as “avoiding contact” or “exploiting rewards through single-finger contact,” I designed a training pipeline consisting of:
 
-针对直接使用 PPO 容易陷入“避免接触”“单指接触刷奖励”等局部最优的问题，我构建了“参考成功轨迹 → 行为克隆预热 → PPO 在线微调 → 课程随机化评估”的训练流程。系统采用 7 维协同动作控制 12 个位置执行器，在保留 11 个手指关节独立物理仿真的同时显著缩小策略搜索空间。
+**reference successful trajectory → behavior cloning warm start → online PPO fine-tuning → curriculum-randomized evaluation**
 
-在最高难度随机化设置下，最终验证策略在 100 个未参与训练的随机种子上取得高于90%的成功率；圆柱平均抬升 8.5 cm，平均水平漂移 1.1 cm，相对手掌平均位移误差 1.0 cm。（此作品集制作时间比较紧张且与项目完成时间有一定跨度，若存在不足望多包涵）
+The system uses a 7-dimensional synergistic action space to control 12 position actuators. This design preserves independent physical simulation of 11 finger joints while significantly reducing the policy search space.
 
+Under the highest-level randomized setting, the final validation policy achieved a success rate above 90% over 100 unseen random seeds. The cylinder was lifted by an average of 8.5 cm, with an average horizontal drift of 1.1 cm and an average relative displacement error of 1.0 cm with respect to the palm.
 
-## 演示视频
+## Problem Definition
 
+The task is formulated as a continuous-control problem. Based on hand joint states, cylinder pose, fingertip-relative positions, and contact-force information, the policy outputs coordinated finger actions and palm-lifting actions.
 
+A successful trial must satisfy the following conditions:
 
-## 问题定义
+* All five fingers form effective contact with the cylinder.
+* The total normal contact force reaches the grasping threshold.
+* The ratio between tangential and normal forces remains within a stable range.
+* The cylinder is lifted at least 5.5 cm from its initial position.
+* The relative position error between the cylinder and the palm is below 3 cm.
+* The relative velocity between the cylinder and the palm is below 0.18 m/s.
+* The above stable state is maintained continuously for approximately 0.6 s.
 
-任务被建模为连续控制问题：策略根据手部关节状态、圆柱位姿、指尖相对位置与接触力信息，输出手指协同动作和手掌升降动作。
+An episode is marked as failed if the cylinder falls, slips more than 6 cm relative to the palm, drifts horizontally more than 10 cm, or if non-finite numerical values appear during simulation.
 
-一次成功必须满足：
-
-- 五根手指均与圆柱形成有效接触；
-- 总法向接触力达到抓持阈值；
-- 切向力与法向力之比处于稳定范围；
-- 圆柱相对初始位置抬升至少 5.5 cm；
-- 圆柱相对手掌的位置误差小于 3 cm；
-- 圆柱相对手掌的速度小于 0.18 m/s；
-- 上述稳定状态连续保持约 0.6 s。
-
-圆柱掉落、相对手掌滑移超过 6 cm、水平漂移超过 10 cm或仿真出现非有限数值时，回合判定失败。
-
-## 系统工作流
+## System Workflow
 
 ```mermaid
 flowchart LR
-    A[自定义五指手模型] --> B[MuJoCo接触仿真]
-    B --> C[72维状态观测]
-    C --> D[参考控制器生成成功轨迹]
-    D --> E[行为克隆预热]
-    E --> F[PPO在线微调]
-    F --> G[7维协同动作]
-    G --> H[12个位置执行器]
+    A[Custom five-finger hand model] --> B[MuJoCo contact simulation]
+    B --> C[72-dimensional state observation]
+    C --> D[Reference controller generates successful trajectories]
+    D --> E[Behavior cloning warm start]
+    E --> F[Online PPO fine-tuning]
+    F --> G[7-dimensional synergistic action]
+    G --> H[12 position actuators]
     H --> B
-    I[课程随机化] --> B
-    F --> J[独立随机种子评估]
+    I[Curriculum randomization] --> B
+    F --> J[Evaluation with independent random seeds]
 ```
 
-## 机械手与仿真建模
+## Robotic Hand and Simulation Modeling
 
-### 五指运动结构
+### Five-Finger Kinematic Structure
 
-模型包含 1 个手掌垂直升降关节和 11 个手指关节：拇指 3 自由度，其余四指各 2 自由度。策略不直接独立控制所有执行器，而是使用符合抓取运动结构的协同动作。
+The model consists of one vertical palm-lifting joint and 11 finger joints: 3 degrees of freedom for the thumb and 2 degrees of freedom for each of the other four fingers. Instead of independently controlling all actuators, the policy uses synergistic actions that match the structure of grasping motion.
 
-| 动作 | 控制内容 |
-|---|---|
-| 1 | 拇指对掌 |
-| 2 | 拇指屈曲 |
-| 3–6 | 食指、中指、无名指、小指分别屈曲 |
-| 7 | 手掌垂直抬升 |
+| Action | Control Target                                         |
+| ------ | ------------------------------------------------------ |
+| 1      | Thumb opposition                                       |
+| 2      | Thumb flexion                                          |
+| 3–6    | Flexion of the index, middle, ring, and little fingers |
+| 7      | Vertical palm lifting                                  |
 
-### 视觉与碰撞分离
+### Separation of Visual and Collision Models
 
-原始 STL 网格仅负责视觉显示；胶囊、球体和盒体组成简化碰撞模型。该设计减少了三角网格接触点跳变、穿透和数值不稳定，同时保留了机械手的真实外观。演示中隐藏碰撞体和调试定位点，只显示手部外观与被抓物体。
+The original STL meshes are used only for visual rendering, while simplified collision geometries composed of capsules, spheres, and boxes are used for physics simulation. This design reduces contact-point discontinuities, penetration, and numerical instability caused by triangular mesh collisions, while preserving the realistic appearance of the robotic hand. In demonstrations, collision bodies and debugging markers are hidden, and only the hand appearance and the grasped object are displayed.
 
-### 控制与仿真频率
+### Control and Simulation Frequency
 
-- MuJoCo 物理步长：1 ms；
-- 每个策略动作执行 20 个物理步；
-- 策略控制频率：50 Hz；
-- 单回合最长时间：8 s。
+* MuJoCo physics timestep: 1 ms
+* Each policy action is executed for 20 physics steps
+* Policy control frequency: 50 Hz
+* Maximum episode duration: 8 s
 
-## 状态与动作设计
+## State and Action Design
 
-策略使用 72 维观测：
+The policy uses a 72-dimensional observation vector:
 
-| 观测内容 | 维数 |
-|---|---:|
-| 受控关节位置与速度 | 24 |
-| 圆柱相对手掌位置与姿态 | 7 |
-| 圆柱线速度与角速度 | 6 |
-| 五个指尖相对圆柱位置 | 15 |
-| 五指接触状态与法向力 | 10 |
-| 抓取、抬升、保持阶段 | 3 |
-| 上一步动作 | 7 |
-| 合计 | 72 |
+| Observation Component                                   | Dimension |
+| ------------------------------------------------------- | --------: |
+| Controlled joint positions and velocities               |        24 |
+| Cylinder position and orientation relative to the palm  |         7 |
+| Cylinder linear and angular velocities                  |         6 |
+| Relative positions from five fingertips to the cylinder |        15 |
+| Five-finger contact states and normal forces            |        10 |
+| Grasping, lifting, and holding phase indicators         |         3 |
+| Previous action                                         |         7 |
+| Total                                                   |        72 |
 
-动作采用增量位置控制，并在执行器允许范围内裁剪。只有五指稳定抓持持续约 0.1 s 后，抬升动作才会生效。这一门控把任务显式分解为“先抓稳、再抬升”，降低了早期探索的歧义。
+The action is implemented as incremental position control and is clipped within the allowable actuator ranges. The lifting action is enabled only after the five-finger grasp has remained stable for approximately 0.1 s. This gating mechanism explicitly decomposes the task into “grasp first, then lift,” reducing ambiguity during early-stage exploration.
 
-## 训练方法
+## Training Method
 
-### 1. 参考成功轨迹
+### 1. Reference Successful Trajectory
 
-首先设计一个只用于验证物理可达性和生成示范数据的参考控制器。该控制器依次完成拇指对掌、五指闭合、手掌抬升和位置保持。
+A reference controller was first designed to verify physical feasibility and generate demonstration data. The controller sequentially performs thumb opposition, five-finger closure, palm lifting, and position holding.
 
-参考控制器的作用不是替代学习，而是回答一个重要问题：如果确定性动作也无法成功，问题应优先归因于几何、碰撞或执行器设计，而不是强化学习算法。
+The purpose of the reference controller is not to replace learning, but to answer an important diagnostic question: if even deterministic actions cannot complete the task, the issue should first be attributed to geometry, collision modeling, or actuator design rather than the reinforcement learning algorithm.
 
-同时也参考控制器也避免了纯PPO训练模型难以收敛，局部最优解的问题。
+The reference controller also helps avoid convergence difficulties and local optima that often occur when training directly with PPO from scratch.
 
-### 2. 行为克隆预热
+### 2. Behavior Cloning Warm Start
 
-利用成功轨迹训练策略模仿参考动作，使 PPO 不必从完全随机的动作分布开始探索。行为克隆后保留适量动作方差，让策略能够探索参考轨迹附近的状态，同时避免高斯噪声立即破坏已学到的抓取动作。
+Successful trajectories are used to train the policy to imitate reference actions, so PPO does not have to start exploration from a completely random action distribution. After behavior cloning, an appropriate amount of action variance is retained, allowing the policy to explore states near the reference trajectory while preventing Gaussian noise from immediately destroying the learned grasping behavior.
 
-### 3. PPO 在线微调
+### 3. Online PPO Fine-Tuning
 
-PPO 访问由策略自身误差产生的状态，例如接触提前或延后、圆柱轻微偏移以及抬升过程中的滑移。它学习的是基于观测的反馈修正，而不只是复现固定时间轨迹。
+PPO explores states caused by the policy’s own errors, such as early or delayed contact, slight cylinder displacement, and slipping during the lifting phase. The policy learns observation-based feedback correction rather than simply reproducing a fixed-time trajectory.
 
-策略网络和价值网络均使用 `256–256–128` 的多层感知机。验证策略使用 64 个成功示范回合、15 轮行为克隆和 4096 个 PPO 环境步获得。项目同时配置了 8 环境、100 万步的完整课程训练流程，用于进一步扩展随机化和鲁棒性。
+Both the policy network and the value network use a multilayer perceptron with hidden layers of `256–256–128`. The validation policy was obtained using 64 successful demonstration episodes, 15 behavior cloning epochs, and 4,096 PPO environment steps. The project also includes a full curriculum training setup with 8 parallel environments and 1 million environment steps for further scaling of randomization and robustness.
 
-### 4. 课程随机化
+### 4. Curriculum Randomization
 
-完整训练从固定场景开始，随后逐步增加圆柱初始位置、偏航角、质量和摩擦随机化：
+The full training process starts from a fixed scenario and gradually increases randomization in cylinder initial position, yaw angle, mass, and friction:
 
-| 参数 | 最高难度范围 |
-|---|---|
-| 初始 X/Y 偏移 | ±6 mm |
-| 初始偏航角 | ±0.2 rad |
-| 质量比例 | 0.9–1.1 |
-| 摩擦比例 | 0.85–1.15 |
+| Parameter          | Highest-Difficulty Range |
+| ------------------ | ------------------------ |
+| Initial X/Y offset | ±6 mm                    |
+| Initial yaw angle  | ±0.2 rad                 |
+| Mass scaling       | 0.9–1.1                  |
+| Friction scaling   | 0.85–1.15                |
 
-## 奖励设计
+## Reward Design
 
-奖励函数遵循任务阶段，而不是只奖励最终高度：
+The reward function follows task stages instead of rewarding only final object height:
 
-- 指尖接近圆柱的进度奖励；
-- 新达到的手指接触数量里程碑；
-- 首次稳定五指抓取奖励；
-- 抓稳后的抬升进度奖励；
-- 稳定保持奖励与最终成功奖励；
-- 丢失接触、滑移、动作突变、极端接触峰值和失败惩罚。
+* Progress reward for fingertips approaching the cylinder
+* Milestone reward for newly achieved numbers of finger contacts
+* First stable five-finger grasp reward
+* Lifting progress reward after a stable grasp is achieved
+* Stable holding reward and final success reward
+* Penalties for contact loss, slipping, abrupt actions, extreme contact-force peaks, and failure
 
-接触数量只在刷新本回合最高纪录时奖励，避免策略通过反复接触和松开同一根手指获得虚假收益。
+The number of contacts is rewarded only when it refreshes the highest contact count within the current episode. This prevents the policy from gaining artificial rewards by repeatedly touching and releasing the same finger.
 
-## 实验结果
+## Experimental Results
 
-评估采用确定性策略，并使用 100 个未参与训练的随机种子。每个种子对应不同的圆柱初始位置、初始角度、质量和摩擦参数。
+Evaluation is conducted with a deterministic policy over 100 random seeds that were not used during training. Each seed corresponds to different cylinder initial positions, initial angles, mass values, and friction parameters.
 
-| 指标 | 结果 |
-|---|---:|
-| 测试回合 | 100 |
-| 成功率 | >90% |
-| 平均抬升高度 | 8.5 cm |
-| 平均水平漂移 | 1.1 cm |
-| 平均相对手掌位移误差 | 1.0 cm |
-| 物理参考控制器测试 | 20/20 成功 |
+| Metric                                          |           Result |
+| ----------------------------------------------- | ---------------: |
+| Test episodes                                   |              100 |
+| Success rate                                    |             >90% |
+| Average lifting height                          |           8.5 cm |
+| Average horizontal drift                        |           1.1 cm |
+| Average relative displacement error w.r.t. palm |           1.0 cm |
+| Physical reference-controller test              | 20/20 successful |
 
-> 以上结果对应当前圆柱任务和所述随机化范围，不代表对任意物体、任意机械手或真实环境的直接泛化能力。
+> The above results correspond to the current cylinder task and the specified randomization range. They do not imply direct generalization to arbitrary objects, arbitrary robotic hands, or real-world deployment.
 
-建议补充以下图表：
+Suggested figures to include:
 
-- `contact_forces.png`：五指接触力随时间变化；
-- `motion_metrics.png`：若干回合的物体高度曲线；
-- `front.png`：不同初始条件的演示截图（正视）；
-- `left.png`：不同初始条件的演示截图（侧视）；
-- `above.png`：不同初始条件的演示截图（俯视）；
+* `contact_forces.png`: contact-force curves of the five fingers over time
+* `motion_metrics.png`: object height curve
+* `front.png`: demonstration screenshots under different initial conditions, front view
+* `left.png`: demonstration screenshots under different initial conditions, side view
+* `above.png`: demonstration screenshots under different initial conditions, top view
 
+## My Contributions
 
-## 我的工作
+* Reviewed the previous reinforcement learning environment and analyzed local optima in reward design.
+* Rebuilt the robotic hand collision model, actuator limits, and tactile detection points.
+* Designed the 7-dimensional action synergy and 72-dimensional state space.
+* Designed staged rewards, grasping gates, and success/failure criteria.
+* Implemented the reference trajectory, behavior cloning, and PPO curriculum training pipeline.
+* Completed multi-seed evaluation, numerical stability checks, and visual demonstrations.
 
-- 梳理旧强化学习环境并分析奖励局部最优问题；
-- 重建机械手碰撞模型、执行器限制和触觉检测点；
-- 设计 7 维动作协同和 72 维状态空间；
-- 设计分阶段奖励、抓取门控与成功/失败判据；
-- 实现参考轨迹、行为克隆和 PPO 课程训练流程；
-- 完成多随机种子评估、数值稳定性检查与可视化演示。
+## Key Takeaways
 
-## 关键收获
+1. For dexterous manipulation, contact geometry and task definition often determine learnability before changing the reinforcement learning algorithm becomes meaningful.
+2. Using only a final-height reward without behavior cloning can lead to policy loopholes such as single-finger pushing, non-enveloping grasps, or unstable holding, making convergence difficult due to local optima.
+3. Behavior cloning is useful for initializing the policy near successful regions, while PPO is valuable for learning feedback corrections after deviations from demonstrations.
+4. Separating visual meshes from physical collision models can improve demonstration quality, training speed, and numerical stability at the same time.
+5. Success rate should be reported under unseen random seeds and explicit randomization ranges. Cumulative reward should not be used as a substitute for task success.
 
-1. 对灵巧操作而言，接触几何和任务定义常常比更换强化学习算法更先决定任务是否可学。
-2. 只使用最终高度奖励（无行为克隆）容易产生单指推动、非五指包络或不稳定夹持等策略漏洞，模型难以收敛（局部最优解）。
-3. 行为克隆适合提供成功区域的初始化，PPO 的价值在于学习偏离示范后的反馈修正。
-4. 视觉网格和物理碰撞模型分离，可以同时改善演示质量、训练速度与数值稳定性。
-5. 成功率必须在未见随机种子和明确随机化范围下报告，不能用累计奖励替代任务成功。
+## Limitations and Future Work
 
-## 局限性与后续工作
+The current system still has several limitations:
 
-当前系统仍有以下限制：
+* It has only been validated on a single cylindrical geometry and has not yet covered multi-shape grasping.
+* The current success criteria mainly constrain translation and relative velocity, while orientation error is not yet explicitly constrained.
+* The domain randomization range is still narrow, and actuator delay, sensor noise, and external disturbances have not yet been included.
+* The system is still simulation-based and has not yet been validated through sim-to-real transfer on a physical robotic hand.
+* Successful demonstrations are generated from a manually designed reference trajectory, so the system still depends on prior engineering design and cannot guarantee a 100% success probability.
 
-- 仅验证单一圆柱几何，尚未覆盖多形状抓取；
-- 当前成功判据主要约束平移和相对速度，尚未显式限制姿态误差；
-- 域随机化范围较窄，未加入执行器延迟、传感器噪声和外力扰动；
-- 仍处于仿真阶段，尚未完成真实机械手上的 sim-to-real 验证；
-- 成功示范来自人工设计参考轨迹，对完全自主探索仍有依赖，且成功概率无法百分百保证。`fail.png`
+`fail.png`
 
-下一步计划：
+Future work includes:
 
-1. 扩展圆柱尺寸、质量和初始姿态范围；
-2. 加入球体、立方体和不规则物体；
-3. 增加角速度与相对姿态稳定判据；
-4. 引入传感器噪声、控制延迟和随机外力；
-5. 研究 residual RL、触觉反馈与真实机械手迁移(sim2real)。
+1. Expanding the ranges of cylinder size, mass, and initial pose
+2. Adding spheres, cubes, and irregular objects
+3. Introducing angular-velocity and relative-orientation stability criteria
+4. Incorporating sensor noise, control delay, and random external forces
+5. Studying residual RL, tactile feedback, and sim-to-real transfer to a physical robotic hand
 
-## 仓库说明
+## Repository Notes
 
-本仓库用于个人作品集展示，包含项目说明、实验结果、系统图和演示视频，不包含源代码、训练模型或机械结构文件。若需要进一步了解实现细节，可通过上方联系方式交流。
+This repository is intended for personal portfolio demonstration. It includes the project description, experimental results, system diagram, and demonstration videos, but does not include source code, trained models, or mechanical structure files. For further implementation details, please contact me through the email address above.
 
-## 致谢与参考
+## Acknowledgements and References
 
-项目使用 MuJoCo、Gymnasium、PyTorch 和 Stable-Baselines3 完成仿真与训练。
+This project was implemented using MuJoCo, Gymnasium, PyTorch, and Stable-Baselines3.
 
+## References
 
-1. Schulman et al., *Proximal Policy Optimization Algorithms*, 2017.
-2. Tobin et al., *Domain Randomization for Transferring Deep Neural Networks from Simulation to the Real World*, 2017.
-3. `[补充与你的行为克隆、灵巧抓取或Shadow Hand基线相关的论文]`
+This portfolio is inspired by recent works on reinforcement learning, imitation learning, and contact-rich dexterous manipulation for robotic hands.
+
+[1] Y. Chen, T. Wu, S. Wang, X. Feng, J. Jiang, Z. Lu, S. McAleer, H. Dong, S.-C. Zhu, and Y. Yang, “Towards Human-Level Bimanual Dexterous Manipulation with Reinforcement Learning,” *Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track*, 2022. [[Paper]](https://proceedings.neurips.cc/paper_files/paper/2022/hash/217a2a387f52c30755c37b0a73430291-Abstract-Datasets_and_Benchmarks.html) [[Project]](https://pku-marl.github.io/DexterousHands/) [[Code]](https://github.com/PKU-MARL/DexterousHands)
+
+[2] Z. Chen, S. Chen, E. Arlaud, I. Laptev, and C. Schmid, “ViViDex: Learning Vision-Based Dexterous Manipulation from Human Videos,” *IEEE International Conference on Robotics and Automation (ICRA)*, 2025. [[Paper]](https://arxiv.org/abs/2404.15709)
+
+[3] Y. Qin, Y.-H. Wu, S. Liu, H. Jiang, R. Yang, Y. Fu, and X. Wang, “DexMV: Imitation Learning for Dexterous Manipulation from Human Videos,” *European Conference on Computer Vision (ECCV)*, 2022. [[Project]](https://yzqin.github.io/dexmv/) [[Paper]](https://arxiv.org/abs/2108.05877)
+
+[4] Z. Jiang, Y. Xie, K. Lin, Z. Xu, W. Wan, A. Mandlekar, L. Fan, and Y. Zhu, “DexMimicGen: Automated Data Generation for Bimanual Dexterous Manipulation via Imitation Learning,” *IEEE International Conference on Robotics and Automation (ICRA)*, 2025. [[Project]](https://dexmimicgen.github.io/) [[Paper]](https://arxiv.org/abs/2410.24185)
+
+[5] S. Wistreich, B. Shi, S. Tian, S. Clarke, M. Nath, C. Xu, Z. Bao, and J. Wu, “DexSkin: High-Coverage Conformable Robotic Skin for Learning Contact-Rich Manipulation,” *Conference on Robot Learning (CoRL)*, 2025. [[Project]](https://dex-skin.github.io/) [[Paper]](https://arxiv.org/abs/2509.18830)
