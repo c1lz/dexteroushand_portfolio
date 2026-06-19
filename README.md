@@ -1,4 +1,4 @@
-# AHand-Grasp: Stable Grasping with a Five-Finger Dexterous Hand using Demonstration-Warm-Started PPO
+# Stable Grasping with a Five-Finger Dexterous Hand using Demonstration-Warm-Started PPO
 
 > A MuJoCo reinforcement learning project for dexterous manipulation: enabling a custom five-finger robotic hand to perform enveloping grasping, lifting, and stable holding of a cylindrical object.
 
